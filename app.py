@@ -26,7 +26,7 @@ events_collection = db.events # Collection name
 
 # GitHub Webhook Secret (for verifying webhook payloads)
 # This secret should match the one configured in your GitHub repository's webhook settings.
-GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET', 'a_very_secret_key').encode('utf-8')
+WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET', 'a_very_secret_key').encode('utf-8')
 
 # --- Helper Functions ---
 
@@ -37,7 +37,7 @@ def verify_signature(payload_body_raw, github_signature_header):
     """
     app.logger.debug(f"Received signature header: {github_signature_header}")
     app.logger.debug(f"Payload body type: {type(payload_body_raw)}, length: {len(payload_body_raw)}")
-    app.logger.debug(f"Configured secret length: {len(GITHUB_WEBHOOK_SECRET)}")
+    app.logger.debug(f"Configured secret length: {len(WEBHOOK_SECRET)}")
 
     if not github_signature_header:
         app.logger.warning("No X-Hub-Signature-256 header found.")
