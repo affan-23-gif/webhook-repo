@@ -30,18 +30,19 @@ GITHUB_WEBHOOK_SECRET = os.getenv('GITHUB_WEBHOOK_SECRET', 'a_very_secret_key').
 
 # --- Helper Functions ---
 
-def verify_signature(payload_body, github_signature_header):
+def verify_signature(payload_body_raw, github_signature_header):
     """
     Verifies the signature of the incoming GitHub webhook payload.
     This ensures the request genuinely came from GitHub and hasn't been tampered with.
     """
+    app.logger.debug(f"Received signature header: {github_signature_header}")
+    app.logger.debug(f"Payload body type: {type(payload_body_raw)}, length: {len(payload_body_raw)}")
+    app.logger.debug(f"Configured secret length: {len(GITHUB_WEBHOOK_SECRET)}")
+
     if not github_signature_header:
-        # If no signature header, assume it's not a GitHub webhook or secret is not set.
-        # In a production environment, you would likely reject this.
         app.logger.warning("No X-Hub-Signature-256 header found.")
         return False
 
-    # GitHub sends the signature in the format 'sha256=<signature>'
     try:
         sha_name, signature = github_signature_header.split('=')
         if sha_name != 'sha256':
@@ -52,9 +53,19 @@ def verify_signature(payload_body, github_signature_header):
         return False
 
     # Calculate the HMAC digest
-    mac = hmac.new(GITHUB_WEBHOOK_SECRET, payload_body, hashlib.sha256)
+    # Ensure payload_body_raw is bytes
+    if isinstance(payload_body_raw, str):
+        payload_body_raw = payload_body_raw.encode('utf-8')
+
+    mac = hmac.new(GITHUB_WEBHOOK_SECRET, payload_body_raw, hashlib.sha256)
+    calculated_signature = mac.hexdigest()
+
+    app.logger.debug(f"Signature from header: {signature}")
+    app.logger.debug(f"Calculated signature: {calculated_signature}")
+    app.logger.debug(f"Signatures match? {hmac.compare_digest(calculated_signature, signature)}")
+
     # Compare the calculated digest with the one from the header
-    return hmac.compare_digest(mac.hexdigest(), signature)
+    return hmac.compare_digest(calculated_signature, signature)
 
 def format_timestamp_utc(timestamp_str):
     """
@@ -82,16 +93,20 @@ def github_webhook():
     Stores relevant data in MongoDB.
     """
     if request.method == 'POST':
-        payload = request.json
+        # Get the raw request data, as GitHub signs the raw payload, not the parsed JSON.
+        payload_raw = request.data
+        payload = request.json # This parses it, for easy access to data
+
         event_type = request.headers.get('X-GitHub-Event')
         github_signature = request.headers.get('X-Hub-Signature-256')
 
         # Verify webhook signature for security
-        if not verify_signature(request.data, github_signature):
-            app.logger.error("Webhook signature verification failed.")
+        # Pass the raw payload for signature verification
+        if not verify_signature(payload_raw, github_signature):
+            app.logger.error("Webhook signature verification failed. Returning 403.")
             return jsonify({"status": "error", "message": "Invalid signature"}), 403
 
-        app.logger.info(f"Received GitHub event: {event_type}")
+        app.logger.info(f"Webhook signature verified successfully for event: {event_type}")
 
         action_data = {}
         timestamp_raw = None
@@ -201,5 +216,7 @@ def index():
 
 # --- Run the Flask App ---
 if __name__ == '__main__':
+    # Set Flask's logger level to DEBUG to see the detailed signature logs
+    app.logger.setLevel('DEBUG')
     # For development, run with debug=True. In production, use a WSGI server like Gunicorn.
     app.run(debug=True, host='0.0.0.0', port=5000)
